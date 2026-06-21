@@ -111,6 +111,15 @@ function generateMockTrip(destination, durationDays, budgetTier, interests) {
   };
 }
 
+// Helper to sanitize timeOfDay values to match Mongoose schema enums
+function sanitizeTimeOfDay(val) {
+  if (!val || typeof val !== 'string') return 'Afternoon';
+  const lower = val.trim().toLowerCase();
+  if (lower.includes('morning')) return 'Morning';
+  if (lower.includes('evening') || lower.includes('night')) return 'Evening';
+  return 'Afternoon'; // default fallback for 'afternoon', 'noon', 'late morning', 'late afternoon', etc.
+}
+
 // Generate new travel plan
 exports.generateNewTrip = async (req, res) => {
   const { destination, durationDays, budgetTier, interests } = req.body;
@@ -157,6 +166,7 @@ exports.generateNewTrip = async (req, res) => {
     3. The packing list is customized for ${destination}'s general climate and activities. Divide items into categories: Documents, Clothing, Gear, or Other.
     4. Provide 2-3 specific hotel options matching the budget profile.
     5. The total in the estimatedBudget matches the sum of transport, accommodation, food, and activities.
+    6. The "timeOfDay" property for every activity MUST be exactly one of: "Morning", "Afternoon", or "Evening". Do not use any other values (like "Late Afternoon", "Late Morning", or "Night").
   `;
 
   try {
@@ -202,6 +212,17 @@ exports.generateNewTrip = async (req, res) => {
       }
 
       cleanResult = JSON.parse(parsedResponseText);
+    }
+
+    // Sanitize timeOfDay values to prevent Mongoose validation errors
+    if (cleanResult.itinerary) {
+      cleanResult.itinerary.forEach(day => {
+        if (day.activities) {
+          day.activities.forEach(act => {
+            act.timeOfDay = sanitizeTimeOfDay(act.timeOfDay);
+          });
+        }
+      });
     }
 
     // Save trip into MongoDB
@@ -411,6 +432,8 @@ exports.regenerateDay = async (req, res) => {
             { "title": "Activity name", "description": "Brief description", "estimatedCostUSD": 25, "timeOfDay": "Morning" }
           ]
         }
+
+        Ensure the "timeOfDay" property for every activity is exactly one of: "Morning", "Afternoon", or "Evening". Do not use any other values (such as "Late Afternoon", "Late Morning", or "Night").
       `;
 
       let model = 'gemini-2.5-flash';
@@ -447,6 +470,13 @@ exports.regenerateDay = async (req, res) => {
       }
 
       cleanResult = JSON.parse(parsedResponseText);
+    }
+
+    // Sanitize timeOfDay values to prevent Mongoose validation errors
+    if (cleanResult.activities) {
+      cleanResult.activities.forEach(act => {
+        act.timeOfDay = sanitizeTimeOfDay(act.timeOfDay);
+      });
     }
 
     // Calculate previous activities cost for this day
